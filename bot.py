@@ -4,6 +4,21 @@ import sqlite3
 import re
 from config import *
 
+# ================== UPTIME ROBOT SERVER ==================
+class PingHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is alive!")
+
+def run_http_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), PingHandler)
+    server.serve_forever()
+
+threading.Thread(target=run_http_server, daemon=True).start()
+
 # ---------- Database ----------
 db = sqlite3.connect("users.db", check_same_thread=False)
 cursor = db.cursor()
