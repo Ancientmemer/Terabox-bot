@@ -45,7 +45,7 @@ async def start(_, msg):
 
 # ---------- HELP ----------
 @app.on_message(filters.command("help"))
-async def help(_, msg):
+async def help_cmd(_, msg):
     await msg.reply_text(
         "📌 **How to use this bot**\n\n"
         "1️⃣ Copy Terabox video/file link\n"
@@ -76,12 +76,13 @@ async def broadcast(_, msg):
     await msg.reply_text(f"✅ Broadcast sent to **{sent}** users")
 
 # ---------- LINK HANDLER ----------
-@app.on_message(filters.text & ~filters.command())
+# Slash (/) commands ellam ignore cheyyum
+@app.on_message(filters.text & ~filters.regex("^/"))
 async def link_handler(_, msg):
     add_user(msg.from_user.id)
 
     text = msg.text
-    if not re.search(r"(terabox|1024tera)", text):
+    if not re.search(r"(terabox|1024tera)", text, re.IGNORECASE):
         return
 
     await msg.reply_text("⏳ Processing your Terabox link...")
