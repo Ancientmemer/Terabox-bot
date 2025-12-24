@@ -76,7 +76,7 @@ async def broadcast(_, msg):
     await msg.reply_text(f"✅ Broadcast sent to **{sent}** users")
 
 # ---------- LINK HANDLER ----------
-@app.on_message(filters.text & ~filters.command)
+@app.on_message(filters.text & ~filters.command())
 async def link_handler(_, msg):
     add_user(msg.from_user.id)
 
