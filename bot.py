@@ -2,7 +2,19 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import sqlite3
 import re
+import threading
+from flask import Flask
 from config import *
+
+# ---------- UPTIME WEB SERVER ----------
+web = Flask(__name__)
+
+@web.route("/")
+def home():
+    return "✅ Terabox Bot is Alive"
+
+def run_web():
+    web.run(host="0.0.0.0", port=8080)
 
 # ---------- Database ----------
 db = sqlite3.connect("users.db", check_same_thread=False)
@@ -76,7 +88,6 @@ async def broadcast(_, msg):
     await msg.reply_text(f"✅ Broadcast sent to **{sent}** users")
 
 # ---------- LINK HANDLER ----------
-# Slash (/) commands ellam ignore cheyyum
 @app.on_message(filters.text & ~filters.regex("^/"))
 async def link_handler(_, msg):
     add_user(msg.from_user.id)
@@ -87,16 +98,12 @@ async def link_handler(_, msg):
 
     await msg.reply_text("⏳ Processing your Terabox link...")
 
-    # -----------------------------
-    # TODO: Terabox extractor logic
-    # -----------------------------
-    # video_url = extract_terabox(text)
-    # await msg.reply_video(video_url)
-
     await msg.reply_text(
         "⚠️ Terabox extractor not added yet.\n"
         "Plug extractor logic here."
     )
 
 # ---------- RUN ----------
-app.run()
+if __name__ == "__main__":
+    threading.Thread(target=run_web).start()
+    app.run()
