@@ -35,8 +35,41 @@ cursor = db.cursor()
 cursor.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY)")
 db.commit()
 
-def add_user(user_id):
-    cursor.execute("INSERT OR IGNORE INTO users (id) VALUES (?)", (user_id,))
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.enums import ChatAction
+import sqlite3
+import re
+import threading
+import time
+import asyncio
+import requests
+import urllib.parse
+from flask import Flask
+from config import *
+
+# ==============================
+# 🌐 UPTIME ROBOT WEB SERVER
+# ==============================
+web = Flask(__name__)
+
+@web.route("/")
+def home():
+    return "✅ Terabox Bot is Alive"
+
+def run_web():
+    web.run(host="0.0.0.0", port=8080)
+
+# ==============================
+# 📦 DATABASE
+# ==============================
+db = sqlite3.connect("users.db", check_same_thread=False)
+cursor = db.cursor()
+cursor.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY)")
+db.commit()
+
+def add_user(uid):
+    cursor.execute("INSERT OR IGNORE INTO users (id) VALUES (?)", (uid,))
     db.commit()
 
 def get_users():
@@ -80,11 +113,11 @@ async def progress_animation(msg):
     steps = [
         ("⏳ Fetching Terabox data...", "⬜⬜⬜⬜⬜ 0%"),
         ("🔄 Generating download link...", "🟩🟩⬜⬜⬜ 40%"),
-        ("📦 Preparing file...", "🟩🟩🟩🟩⬜ 80%"),
+        ("📦 Preparing file...", "🟩🟩🟩🟩⬜ 80%")
     ]
-    for text, bar in steps:
+    for t, bar in steps:
         try:
-            await msg.edit_text(f"{text}\n\n{bar}", reply_markup=cancel_keyboard)
+            await msg.edit_text(f"{t}\n\n{bar}", reply_markup=cancel_keyboard)
             await asyncio.sleep(1.2)
         except:
             pass
@@ -98,7 +131,7 @@ async def send_typing(app, chat_id, seconds=3):
             break
 
 # ==============================
-# 🔗 UPDATED TERABOX EXTRACTOR (2024/2025)
+# 🔗 UPDATED TERABOX EXTRACTOR (GitHub-only)
 # ==============================
 def extract_terabox(url: str):
     session = requests.Session()
@@ -109,24 +142,24 @@ def extract_terabox(url: str):
         "Referer": "https://www.terabox.com/"
     }
 
-    # 1️⃣ Open share page (cookies required)
+    # 1️⃣ Open share page (cookies needed)
     r = session.get(url, headers=headers, allow_redirects=True, timeout=15)
     if r.status_code != 200:
         return None
 
-    # 2️⃣ Extract surl (shorturl)
+    # 2️⃣ Extract shorturl (surl)
     parsed = urllib.parse.urlparse(r.url)
-    query = urllib.parse.parse_qs(parsed.query)
+    qs = urllib.parse.parse_qs(parsed.query)
 
-    if "surl" in query:
-        surl = query["surl"][0]
+    if "surl" in qs:
+        surl = qs["surl"][0]
     else:
-        m = re.search(r"/s/([a-zA-Z0-9_-]+)", r.url)
+        m = re.search(r"/s/([A-Za-z0-9_-]+)", r.url)
         if not m:
             return None
         surl = m.group(1)
 
-    # 3️⃣ Call listshare API (working endpoint)
+    # 3️⃣ listshare API
     list_api = "https://www.terabox.com/share/listshare"
     params = {
         "app_id": "250528",
@@ -137,25 +170,30 @@ def extract_terabox(url: str):
     }
 
     res = session.get(list_api, headers=headers, params=params, timeout=15)
-    data = res.json()
+    try:
+        data = res.json()
+    except:
+        return None
 
     if "list" not in data or not data["list"]:
         return None
 
-    file_info = data["list"][0]
-    fs_id = file_info.get("fs_id")
+    fs_id = data["list"][0].get("fs_id")
     if not fs_id:
         return None
 
-    # 4️⃣ Get direct download link
-    download_api = "https://www.terabox.com/share/download"
+    # 4️⃣ download API
+    dl_api = "https://www.terabox.com/share/download"
     dparams = {
         "app_id": "250528",
         "fs_id": fs_id
     }
 
-    dres = session.get(download_api, headers=headers, params=dparams, timeout=15)
-    djson = dres.json()
+    dres = session.get(dl_api, headers=headers, params=dparams, timeout=15)
+    try:
+        djson = dres.json()
+    except:
+        return None
 
     return djson.get("dlink")
 
@@ -167,7 +205,7 @@ async def start(_, msg):
     add_user(msg.from_user.id)
     await msg.reply_text(
         "👋 **Welcome to Terabox Downloader Bot**\n\n"
-        "📥 Send any Terabox link\n"
+        "📥 Send any Terabox share link\n"
         "🎥 Choose download type\n\n"
         "Use /help for more info",
         reply_markup=InlineKeyboardMarkup([
@@ -179,9 +217,9 @@ async def start(_, msg):
 async def help_cmd(_, msg):
     await msg.reply_text(
         "📌 **How to use**\n\n"
-        "1️⃣ Send Terabox link\n"
-        "2️⃣ Choose option\n"
-        "3️⃣ Get file / link\n"
+        "1️⃣ Send a Terabox share link\n"
+        "2️⃣ Choose download option\n"
+        "3️⃣ Get file or direct link"
     )
 
 @app.on_message(filters.command("stats") & filters.user(OWNER_ID))
@@ -191,23 +229,29 @@ async def stats(_, msg):
 @app.on_message(filters.command("broadcast") & filters.user(OWNER_ID) & filters.reply)
 async def broadcast(_, msg):
     sent = 0
-    for user in get_users():
+    for u in get_users():
         try:
-            await msg.reply_to_message.copy(user)
+            await msg.reply_to_message.copy(u)
             sent += 1
         except:
             pass
     await msg.reply_text(f"✅ Broadcast sent to **{sent}** users")
 
 # ==============================
-# 🔗 LINK HANDLER
+# 🔗 LINK HANDLER (ALL TERABOX DOMAINS)
 # ==============================
 @app.on_message(filters.text & ~filters.regex("^/"))
 async def link_handler(_, msg):
-    if not re.search(r"(terabox|1024tera)", msg.text, re.I):
+    text = msg.text.strip()
+
+    # Accept ALL Terabox mirror domains ONLY with /s/
+    pattern = r"https?://([a-z0-9\-]+\.)?(terabox|tera)[a-z0-9\-\.]*/s/[A-Za-z0-9_-]+"
+
+    if not re.search(pattern, text, re.I):
         return
 
-    user_links[msg.from_user.id] = msg.text
+    user_links[msg.from_user.id] = text
+
     await msg.reply_text(
         "🔽 **Choose download method:**",
         reply_markup=choice_keyboard
@@ -227,6 +271,7 @@ async def cancel_dl(_, q):
 @app.on_callback_query(filters.regex("dl_link|upload_file"))
 async def handle_download(app, q: CallbackQuery):
     uid = q.from_user.id
+
     if uid not in user_links:
         await q.answer("❌ Link expired", show_alert=True)
         return
@@ -246,7 +291,7 @@ async def handle_download(app, q: CallbackQuery):
 
     file_url = extract_terabox(link)
     if not file_url:
-        await msg.edit_text("❌ Failed to extract link.")
+        await msg.edit_text("❌ Failed to extract link.\n\n⚠️ This link may be private, expired, or blocked by Terabox.")
         return
 
     t = round(time.time() - start_time, 2)
@@ -265,7 +310,7 @@ async def handle_download(app, q: CallbackQuery):
             )
         except:
             await q.message.reply_text(
-                f"⚠️ File too large\n\n⬇️ {file_url}"
+                f"⚠️ File too large for Telegram upload.\n\n⬇️ {file_url}"
             )
 
     user_links.pop(uid, None)
