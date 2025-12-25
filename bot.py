@@ -11,6 +11,7 @@ import threading
 import time
 import asyncio
 import requests
+import urllib.parse
 from flask import Flask
 from config import *
 
@@ -97,39 +98,66 @@ async def send_typing(app, chat_id, seconds=3):
             break
 
 # ==============================
-# 🔗 TERABOX EXTRACTOR
+# 🔗 UPDATED TERABOX EXTRACTOR (2024/2025)
 # ==============================
-def extract_terabox(url):
+def extract_terabox(url: str):
     session = requests.Session()
+
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept": "application/json, text/plain, */*",
         "Referer": "https://www.terabox.com/"
     }
 
-    r = session.get(url, headers=headers, timeout=15)
+    # 1️⃣ Open share page (cookies required)
+    r = session.get(url, headers=headers, allow_redirects=True, timeout=15)
     if r.status_code != 200:
         return None
 
-    token = re.search(r'jsToken":"(.*?)"', r.text)
-    if not token:
-        return None
-    js_token = token.group(1)
+    # 2️⃣ Extract surl (shorturl)
+    parsed = urllib.parse.urlparse(r.url)
+    query = urllib.parse.parse_qs(parsed.query)
 
-    surl = re.search(r'surl=([a-zA-Z0-9_-]+)', url)
-    if not surl:
-        return None
-    surl = surl.group(1)
+    if "surl" in query:
+        surl = query["surl"][0]
+    else:
+        m = re.search(r"/s/([a-zA-Z0-9_-]+)", r.url)
+        if not m:
+            return None
+        surl = m.group(1)
 
-    api = (
-        "https://www.terabox.com/share/list"
-        f"?app_id=250528&shorturl={surl}&jsToken={js_token}&page=1&num=1"
-    )
+    # 3️⃣ Call listshare API (working endpoint)
+    list_api = "https://www.terabox.com/share/listshare"
+    params = {
+        "app_id": "250528",
+        "shorturl": surl,
+        "root": "1",
+        "page": "1",
+        "num": "1"
+    }
 
-    data = session.get(api, headers=headers, timeout=15).json()
+    res = session.get(list_api, headers=headers, params=params, timeout=15)
+    data = res.json()
+
     if "list" not in data or not data["list"]:
         return None
 
-    return data["list"][0].get("dlink")
+    file_info = data["list"][0]
+    fs_id = file_info.get("fs_id")
+    if not fs_id:
+        return None
+
+    # 4️⃣ Get direct download link
+    download_api = "https://www.terabox.com/share/download"
+    dparams = {
+        "app_id": "250528",
+        "fs_id": fs_id
+    }
+
+    dres = session.get(download_api, headers=headers, params=dparams, timeout=15)
+    djson = dres.json()
+
+    return djson.get("dlink")
 
 # ==============================
 # 🚀 COMMANDS
